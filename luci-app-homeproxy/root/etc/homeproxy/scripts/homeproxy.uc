@@ -742,10 +742,12 @@ export function usable_dns_server(server) {
 	if (match(lower, /^[a-z][a-z0-9+.-]*:\/\//))
 		return false;
 
-	if (!validation('ipaddr', server) && !validation('ip6addr', server))
+	/* A bare literal may be written as [IPv6]. */
+	const bare = replace(server, /^\[|\]$/g, '');
+	if (!validation('ipaddr', bare) && !validation('ip6addr', bare))
 		return false;
 
-	return !isLoopbackDNSHost(server);
+	return !isLoopbackDNSHost(bare);
 };
 /* String parser end */
 
