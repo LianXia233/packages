@@ -459,6 +459,14 @@ function parse_dnsserver(server_addr, default_protocol) {
 /* DNS supplied by the subscription or the node itself, used to resolve the
    outbound server domain (equivalent of mihomo proxy-server-nameserver). */
 const node_dns_tags = {};
+const node_dns_usable_cache = {};
+
+/* Most nodes share one resolver; avoid forking validate_data per node. */
+function usable_node_dns(server) {
+	if (!(server in node_dns_usable_cache))
+		node_dns_usable_cache[server] = usable_dns_server(server);
+	return node_dns_usable_cache[server];
+}
 
 /* Domestic resolver used when neither the node nor the subscription provides
    one. Node domains must be resolved directly, never through the proxy. */
@@ -709,7 +717,7 @@ if (!isEmpty(main_node)) {
 		if (node['.type'] !== 'node')
 			return;
 		const dns = effective_node_dns(node);
-		if (isEmpty(dns) || !usable_dns_server(dns))
+		if (isEmpty(dns) || !usable_node_dns(dns))
 			return;
 		if (!(dns in dns_bootstrap))
 			dns_bootstrap[dns] = effective_node_dns_bootstrap(node);
@@ -721,7 +729,7 @@ if (!isEmpty(main_node)) {
 		bootstrap_tags[fallback_dns_bootstrap] = node_fallback_bootstrap_tag;
 	for (let dns in keys(dns_bootstrap)) {
 		const bootstrap = dns_bootstrap[dns];
-		if (isEmpty(bootstrap) || !usable_dns_server(bootstrap) ||
+		if (isEmpty(bootstrap) || !usable_node_dns(bootstrap) ||
 		    bootstrap in bootstrap_tags)
 			continue;
 

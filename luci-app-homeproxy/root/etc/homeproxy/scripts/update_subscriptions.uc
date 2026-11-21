@@ -1321,10 +1321,16 @@ function select_provider_bootstrap(list) {
 	return best;
 }
 
+/* Cheap literal check: avoids forking /sbin/validate_data twice per node. */
+function is_ip_address(value) {
+	return match(value, /^(\d{1,3}\.){3}\d{1,3}$/) != null ||
+		match(value, /^[0-9A-Fa-f:]+$/) != null;
+}
+
 function apply_provider_dns(config, provider_dns) {
 	if (isEmpty(provider_dns) || isEmpty(config.address))
 		return;
-	if (validation('ipaddr', config.address) || validation('ip6addr', config.address))
+	if (is_ip_address(config.address))
 		return;
 
 	/* mihomo uses proxy-server-nameserver as the resolver set for node
