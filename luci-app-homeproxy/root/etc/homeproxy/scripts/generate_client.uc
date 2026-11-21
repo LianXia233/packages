@@ -426,13 +426,30 @@ function parse_dnsserver(server_addr, default_protocol) {
 
 	if (!match(server_addr, /:\/\//))
 		server_addr = (default_protocol || 'udp') + '://' + (validation('ip6addr', server_addr) ? `[${server_addr}]` : server_addr);
-	server_addr = parseURL(server_addr);
+
+	const parsed = parseURL(server_addr);
+	if (!parsed || isEmpty(parsed.hostname))
+		return null;
+
+	/* server_port is uint16 in sing-box: an out-of-range value makes
+	   "sing-box check" fail and the whole client instance refuse to start. */
+	const port = strToInt(parsed.port);
+	if (port !== null && (port < 1 || port > 65535))
+		return null;
+
+	const has_path = (parsed.protocol === 'https' || parsed.protocol === 'h3');
+	let path = null;
+	if (has_path) {
+		path = parsed.pathname + (parsed.search ? '?' + parsed.search : '');
+		if (path === '/')
+			path = null;
+	}
 
 	return {
-		type: server_addr.protocol,
-		server: server_addr.hostname,
-		server_port: strToInt(server_addr.port),
-		path: (server_addr.pathname !== '/') ? server_addr.pathname : null,
+		type: parsed.protocol,
+		server: parsed.hostname,
+		server_port: port,
+		path,
 	}
 }
 

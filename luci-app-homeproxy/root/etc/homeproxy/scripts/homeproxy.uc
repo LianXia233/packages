@@ -642,7 +642,7 @@ export function parseURL(url) {
 	});
 
 	url = replace(url, /^(\w[A-Za-z0-9\+\-\.]+):/, (_, val) => {
-		objurl.protocol = val;
+		objurl.protocol = lc(val);
 		return '';
 	});
 
