@@ -172,6 +172,7 @@ setDefault('tailscale', 'accept_routes', '0');
 setDefault('tailscale', 'exit_node_allow_lan_access', '0');
 setDefault('tailscale', 'advertise_exit_node', '0');
 setDefault('control', 'lan_whitelist_mode', '0');
+setDefault('subscription', 'fetch_provider_dns', '1');
 setDefault('server', 'log_level', 'warn');
 
 if (!isEmpty(uci.changes(uciconfig)) && uci.commit(uciconfig) !== true)

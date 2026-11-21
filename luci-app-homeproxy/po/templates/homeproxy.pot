@@ -372,6 +372,10 @@ msgstr ""
 msgid "Cron expression online generator"
 msgstr ""
 
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:992
+msgid "DNS addresses with a proxy suffix are not supported."
+msgstr ""
+
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/server.js:637
 msgid "DNS provider"
 msgstr ""
@@ -770,6 +774,10 @@ msgstr ""
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1201
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/server.js:378
 msgid "Flow"
+msgstr ""
+
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:983
+msgid "Follow subscription / fallback"
 msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1307
@@ -1362,6 +1370,10 @@ msgstr ""
 msgid "Node"
 msgstr ""
 
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:981
+msgid "Node DNS"
+msgstr ""
+
 #: luci-app-homeproxy/root/usr/share/luci/menu.d/luci-app-homeproxy.json:22
 msgid "Node Settings"
 msgstr ""
@@ -1401,12 +1413,25 @@ msgid ""
 "routing."
 msgstr ""
 
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:2001
+msgid ""
+"Only enable this for subscriptions you trust: the provider then"
+"controls how node server domains are resolved."
+msgstr ""
+
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js:602
 msgid "Only process traffic from specific interfaces. Leave empty for all."
 msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js:578
 msgid "Open dashboard"
+msgstr ""
+
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:982
+msgid ""
+"Override the DNS server used to resolve the server address of this"
+"node. Leave empty to use the DoH/DoT delivered by the subscription or"
+"the domestic fallback DNS."
 msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1308
@@ -1480,6 +1505,13 @@ msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/homeproxy.js:26
 msgid "Prefer IPv6"
+msgstr ""
+
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1997
+msgid ""
+"Prefer the DoH/DoT resolver delivered by the subscription"
+"(Clash/Mihomo <code>proxy-server-nameserver</code>) when resolving"
+"node server domains."
 msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1143
@@ -2220,6 +2252,10 @@ msgstr ""
 msgid "Use ACME TLS certificate issuer."
 msgstr ""
 
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1996
+msgid "Use provider DNS"
+msgstr ""
+
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js:878
 msgid ""
 "Used only when creating the node. Leave empty to sign in using the login "
@@ -2284,6 +2320,12 @@ msgstr ""
 msgid "Website"
 msgstr ""
 
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1999
+msgid ""
+"When the subscription does not deliver one, a domestic DoH resolver is"
+"used as fallback."
+msgstr ""
+
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1876
 msgid "Whitelist mode"
 msgstr ""
@@ -2324,6 +2366,10 @@ msgstr ""
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js:793
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js:802
 msgid "[Tailscale] Tailscale"
+msgstr ""
+
+#: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:994
+msgid "a DNS server address"
 msgstr ""
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1562
