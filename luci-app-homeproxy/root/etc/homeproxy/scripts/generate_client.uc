@@ -32,6 +32,7 @@ uci.load(uciconfig);
 const uciinfra = 'infra',
       ucimain = 'config',
       ucicontrol = 'control',
+      ucisubscription = 'subscription',
       ucitalscale = 'tailscale';
 
 const routing_mode = uci.get(uciconfig, ucimain, 'routing_mode') || 'bypass_mainland_china';
@@ -73,7 +74,7 @@ const ntp_server = uci.get(uciconfig, uciinfra, 'ntp_server') || 'time.apple.com
 const ipv6_support = uci.get(uciconfig, ucimain, 'ipv6_support') || '0';
 
 const main_node = uci.get(uciconfig, ucimain, 'main_node') || 'nil';
-const fetch_provider_dns = uci.get(uciconfig, 'subscription', 'fetch_provider_dns') || '1';
+const fetch_provider_dns = uci.get(uciconfig, ucisubscription, 'fetch_provider_dns') || '1';
 
 const tailscale_tag = 'tailscale-out';
 const tailscale_enabled = uci.get(uciconfig, ucitalscale, 'enabled') === '1';

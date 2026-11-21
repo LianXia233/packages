@@ -1184,7 +1184,7 @@ function parse_provider_dns(text) {
 	let in_dns = false, child_indent = -1, list_indent = -1, section = null;
 	let servers = { proxy: [], nameserver: [], bootstrap: [] };
 
-	for (let raw in split(text, sprintf('%c', 10))) {
+	for (let raw in split(text, '\n')) {
 		raw = rtrim(raw);
 		const line = trim(raw);
 		if (isEmpty(line) || substr(line, 0, 1) === '#')
