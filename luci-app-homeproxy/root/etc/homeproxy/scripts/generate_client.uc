@@ -10,13 +10,15 @@
 import { readfile, writefile } from 'fs';
 import { connect } from 'ubus';
 import { cursor } from 'uci';
+import { md5 } from 'digest';
 
 import {
 	addECHDNS, createNodeOutboundTags, filterExistingNodes, findDomainGroupConflict,
 	isEmpty, normalizeDomainList, normalizeList, parseURL,
 	domainListPath, resolveLanPolicy, splitDomainList,
 	strToBool, strToInt, strToTime,
-	removeBlankAttrs, renderEndpoint, renderOutbound, validation, HP_DIR, RUN_DIR
+	removeBlankAttrs, renderEndpoint, renderOutbound, usable_dns_server,
+	validation, HP_DIR, RUN_DIR
 } from 'homeproxy';
 
 const ubus = connect();
@@ -71,6 +73,7 @@ const ntp_server = uci.get(uciconfig, uciinfra, 'ntp_server') || 'time.apple.com
 const ipv6_support = uci.get(uciconfig, ucimain, 'ipv6_support') || '0';
 
 const main_node = uci.get(uciconfig, ucimain, 'main_node') || 'nil';
+const fetch_provider_dns = uci.get(uciconfig, 'subscription', 'fetch_provider_dns') || '1';
 
 const tailscale_tag = 'tailscale-out';
 const tailscale_enabled = uci.get(uciconfig, ucitalscale, 'enabled') === '1';
@@ -453,10 +456,56 @@ function parse_dnsserver(server_addr, default_protocol) {
 	}
 }
 
+/* DNS supplied by the subscription or the node itself, used to resolve the
+   outbound server domain (equivalent of mihomo proxy-server-nameserver). */
+const node_dns_tags = {};
+
+/* Domestic resolver used when neither the node nor the subscription provides
+   one. Node domains must be resolved directly, never through the proxy. */
+const fallback_dns_server = 'https://dns.alidns.com/dns-query';
+const fallback_dns_bootstrap = '223.5.5.5';
+let node_fallback_dns_tag = null;
+let node_fallback_bootstrap_tag = null;
+
+/* A manual override always wins; subscription DNS is only honoured while the
+   user has the provider DNS switch enabled. */
+function effective_node_dns(node) {
+	if (!isEmpty(node.node_dns_server))
+		return node.node_dns_server;
+	if (fetch_provider_dns === '1' && !isEmpty(node.provider_dns_server))
+		return node.provider_dns_server;
+	return null;
+}
+
+function effective_node_dns_bootstrap(node) {
+	if (!isEmpty(node.node_dns_server) || fetch_provider_dns !== '1')
+		return null;
+	return node.provider_dns_bootstrap;
+}
+
+/* Stable tag: numbering by traversal order drifts whenever a node is added or
+   removed, which makes logs and diffs hard to compare across updates. */
+function node_dns_tag(prefix, server) {
+	return prefix + substr(md5(server), 0, 8);
+}
+
+function set_node_domain_resolver(dial_object, node) {
+	if (!dial_object || node.type === 'direct')
+		return;
+
+	const dns = effective_node_dns(node);
+	let tag = (!isEmpty(dns) && node_dns_tags[dns]) ? node_dns_tags[dns] : null;
+	if (isEmpty(tag))
+		tag = node_fallback_dns_tag;
+	if (!isEmpty(tag))
+		dial_object.domain_resolver = make_domain_resolver(tag);
+}
+
 function generate_outbound(node) {
 	const outbound = renderOutbound(node);
 	if (outbound && node['.name'])
 		outbound.tag = get_node_outbound_tag(node['.name']);
+	set_node_domain_resolver(outbound, node);
 	return outbound;
 }
 
@@ -464,6 +513,7 @@ function generate_endpoint(node) {
 	const endpoint = renderEndpoint(node);
 	if (endpoint && node['.name'])
 		endpoint.tag = get_node_outbound_tag(node['.name']);
+	set_node_domain_resolver(endpoint, node);
 	return endpoint;
 }
 
@@ -627,6 +677,94 @@ if (ipv6_support === '1') {
 		config.dns.ipv6_by_outbound = ipv6_by_outbound;
 }
 /* DNS end */
+
+/* Provider DNS servers for outbound server domains.
+   Every node that connects by domain gets an explicit domain_resolver:
+   the manual per-node value, the DoH/DoT delivered by the subscription,
+   or the domestic fallback. Malformed values are skipped instead of
+   breaking the whole sing-box config. */
+if (!isEmpty(main_node)) {
+	/* Domestic fallback chain, resolved directly (no detour). */
+	const fallback_bootstrap = parse_dnsserver(fallback_dns_bootstrap, 'udp');
+	if (fallback_bootstrap) {
+		node_fallback_bootstrap_tag = node_dns_tag('node-dns-bootstrap-', fallback_dns_bootstrap);
+		push(config.dns.servers, {
+			tag: node_fallback_bootstrap_tag,
+			...fallback_bootstrap
+		});
+
+		const fallback = parse_dnsserver(fallback_dns_server, 'udp');
+		if (fallback) {
+			node_fallback_dns_tag = 'node-dns-fallback';
+			push(config.dns.servers, {
+				tag: node_fallback_dns_tag,
+				domain_resolver: make_domain_resolver(node_fallback_bootstrap_tag),
+				...fallback
+			});
+		}
+	}
+
+	const dns_bootstrap = {};
+	uci.foreach(uciconfig, 'node', (node) => {
+		if (node['.type'] !== 'node')
+			return;
+		const dns = effective_node_dns(node);
+		if (isEmpty(dns) || !usable_dns_server(dns))
+			return;
+		if (!(dns in dns_bootstrap))
+			dns_bootstrap[dns] = effective_node_dns_bootstrap(node);
+	});
+
+	/* Bootstrap servers must exist before the servers referencing them. */
+	const bootstrap_tags = {};
+	if (!isEmpty(node_fallback_bootstrap_tag))
+		bootstrap_tags[fallback_dns_bootstrap] = node_fallback_bootstrap_tag;
+	for (let dns in keys(dns_bootstrap)) {
+		const bootstrap = dns_bootstrap[dns];
+		if (isEmpty(bootstrap) || !usable_dns_server(bootstrap) ||
+		    bootstrap in bootstrap_tags)
+			continue;
+
+		let parsed;
+		try {
+			parsed = parse_dnsserver(bootstrap, 'udp');
+		} catch (e) {
+			parsed = null;
+		}
+		if (!parsed || isEmpty(parsed.server))
+			continue;
+
+		const tag = node_dns_tag('node-dns-bootstrap-', bootstrap);
+		bootstrap_tags[bootstrap] = tag;
+		push(config.dns.servers, {
+			tag,
+			domain_resolver: make_domain_resolver(node_fallback_bootstrap_tag),
+			...parsed
+		});
+	}
+
+	for (let dns in keys(dns_bootstrap)) {
+		let parsed;
+		try {
+			parsed = parse_dnsserver(dns, 'udp');
+		} catch (e) {
+			parsed = null;
+		}
+		if (!parsed || isEmpty(parsed.server))
+			continue;
+
+		const bootstrap = dns_bootstrap[dns];
+		const bootstrap_tag = (!isEmpty(bootstrap) && bootstrap_tags[bootstrap]) ?
+			bootstrap_tags[bootstrap] : node_fallback_bootstrap_tag;
+		const tag = node_dns_tag('node-dns-', dns);
+		node_dns_tags[dns] = tag;
+		push(config.dns.servers, {
+			tag,
+			domain_resolver: make_domain_resolver(bootstrap_tag),
+			...parsed
+		});
+	}
+}
 
 /* Inbound start */
 config.inbounds = [];

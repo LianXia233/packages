@@ -51,6 +51,67 @@ function firstInsecure(...values) {
 	return null;
 }
 
+function isValidIPv4(value) {
+	const parts = value.split('.');
+	return parts.length === 4 &&
+		parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+function isValidIPv6(value) {
+	const host = value.replace(/^\[|\]$/g, '');
+	if (!host.includes(':'))
+		return false;
+	try {
+		new URL('http://[' + host + ']');
+		return true;
+	} catch (e) {
+		return false;
+	}
+}
+
+/* Accept exactly what the backend can turn into a sing-box DNS server:
+   an IPv4/IPv6 literal, or scheme://host[:port][/path]. */
+function isValidDnsServer(value) {
+	if (isValidIPv4(value) || isValidIPv6(value))
+		return true;
+
+	const m = /^(https|h3|tls|tcp|udp|quic):\/\/([^\s\/]+)(\/\S*)?$/i.exec(value);
+	if (!m)
+		return false;
+
+	let host = m[2], port = null;
+	if (host.startsWith('[')) {
+		const end = host.indexOf(']');
+		if (end < 0)
+			return false;
+		const rest = host.slice(end + 1);
+		host = host.slice(0, end + 1);
+		if (rest) {
+			if (!/^:\d{1,5}$/.test(rest))
+				return false;
+			port = Number(rest.slice(1));
+		}
+	} else {
+		const idx = host.lastIndexOf(':');
+		if (idx >= 0) {
+			const portText = host.slice(idx + 1);
+			if (!/^\d{1,5}$/.test(portText))
+				return false;
+			host = host.slice(0, idx);
+			port = Number(portText);
+		}
+	}
+
+	if (port !== null && (port < 1 || port > 65535))
+		return false;
+	if (host.startsWith('['))
+		return isValidIPv6(host);
+	if (isValidIPv4(host))
+		return true;
+
+	return /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host);
+}
+
 function normalizeHysteriaHoppingPort(mport) {
 	if (!mport)
 		return null;
@@ -916,6 +977,23 @@ function renderNodeSettings(section, data, features, main_node, node_latency_row
 	o.datatype = 'port';
 	o.depends({'type': 'direct', '!reverse': true});
 	o.rmempty = false;
+
+	o = s.option(form.Value, 'node_dns_server', _('Node DNS'),
+		_('Override the DNS server used to resolve the server address of this node. Leave empty to use the DoH/DoT delivered by the subscription or the domestic fallback DNS.'));
+	o.placeholder = _('Follow subscription / fallback');
+	o.datatype = 'string';
+	o.depends({'type': 'direct', '!reverse': true});
+	o.rmempty = true;
+	o.modalonly = true;
+	o.validate = function(section_id, value) {
+		if (!section_id || !value)
+			return true;
+		if (value.includes('#'))
+			return _('DNS addresses with a proxy suffix are not supported.');
+		if (!isValidDnsServer(value))
+			return _('Expecting: %s').format(_('a DNS server address'));
+		return true;
+	};
 
 	o = s.option(form.Value, 'username', _('Username'));
 	o.depends('type', 'http');
@@ -1913,6 +1991,15 @@ return view.extend({
 		o = s.taboption('subscription', form.Value, 'user_agent', _('User-Agent'));
 		o.default = 'homeproxy';
 		o.placeholder = 'homeproxy';
+		o.rmempty = false;
+
+		o = s.taboption('subscription', form.Flag, 'fetch_provider_dns', _('Use provider DNS'),
+			_('Prefer the DoH/DoT resolver delivered by the subscription (Clash/Mihomo <code>proxy-server-nameserver</code>) when resolving node server domains.') +
+			'<br/>' +
+			_('When the subscription does not deliver one, a domestic DoH resolver is used as fallback.') +
+			'<br/>' +
+			_('Only enable this for subscriptions you trust: the provider then controls how node server domains are resolved.'));
+		o.default = o.enabled;
 		o.rmempty = false;
 
 		o = s.taboption('subscription', form.Flag, 'allow_insecure', _('Allow insecure'),

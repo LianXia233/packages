@@ -17,7 +17,7 @@ import { urldecode, urlencode } from 'luci.http';
 import {
 	wGET, decodeBase64Str, getTime, isEmpty, parseECHConfig, parseURL, realityFingerprint,
 	reconcileUrltestNodes, reserveUniqueLabel, synchronizeNodeLabels,
-	validation, HP_DIR, RUN_DIR
+	usable_dns_server, validation, HP_DIR, RUN_DIR
 } from 'homeproxy';
 
 /* UCI config start */
@@ -31,6 +31,7 @@ const uciinfra = 'infra',
       ucisubscription = 'subscription';
 
 const allow_insecure = uci.get(uciconfig, ucisubscription, 'allow_insecure') || '0',
+      fetch_provider_dns = uci.get(uciconfig, ucisubscription, 'fetch_provider_dns') || '1',
       filter_mode = uci.get(uciconfig, ucisubscription, 'filter_nodes') || 'disabled',
       filter_keywords = uci.get(uciconfig, ucisubscription, 'filter_keywords') || [],
       packet_encoding = uci.get(uciconfig, ucisubscription, 'packet_encoding') || 'xudp',
@@ -1053,6 +1054,293 @@ function parse_mihomo_yaml(text) {
 	return length(proxies) ? proxies : null;
 }
 
+/* Provider DNS parsing start */
+function strip_yaml_comment(value) {
+	let quote = null, i = 0;
+	while (i < length(value)) {
+		const c = substr(value, i, 1);
+		if (quote) {
+			if (c === quote)
+				quote = null;
+		} else if (c === '"' || c === "'") {
+			quote = c;
+		} else if (c === '#' && (i === 0 || match(substr(value, i - 1, 1), /\s/))) {
+			return rtrim(substr(value, 0, i));
+		}
+		i++;
+	}
+	return rtrim(value);
+}
+
+function yaml_scalar(value) {
+	value = trim(strip_yaml_comment(trim(value || '')));
+	if (match(value, /^".*"$/) || match(value, /^'.*'$/))
+		value = substr(value, 1, length(value) - 2);
+	return trim(value);
+}
+
+/* Split a YAML flow sequence on top-level commas only. */
+function split_yaml_list(value) {
+	let result = [], current = '', quote = null, depth = 0;
+	for (let i = 0; i < length(value); i++) {
+		const c = substr(value, i, 1);
+		if (quote) {
+			current += c;
+			if (c === quote)
+				quote = null;
+		} else if (c === '"' || c === "'") {
+			quote = c;
+			current += c;
+		} else if (c === '[' || c === '{') {
+			depth++;
+			current += c;
+		} else if (c === ']' || c === '}') {
+			if (depth > 0)
+				depth--;
+			current += c;
+		} else if (c === ',' && depth === 0) {
+			push(result, current);
+			current = '';
+		} else {
+			current += c;
+		}
+	}
+	push(result, current);
+	return result;
+}
+
+function yaml_list(value) {
+	value = trim(strip_yaml_comment(trim(value || '')));
+	if (match(value, /^\[.*\]$/))
+		value = substr(value, 1, length(value) - 2);
+
+	let result = [];
+	for (let item in split_yaml_list(value)) {
+		item = yaml_scalar(item);
+		if (!isEmpty(item))
+			push(result, item);
+	}
+	return result;
+}
+
+const provider_dns_keys = ['proxy-server-nameserver', 'nameserver', 'default-nameserver'];
+
+function collect_provider_dns(servers, section, value) {
+	const item = yaml_scalar(value);
+	if (isEmpty(item))
+		return;
+	/* A '#' suffix asks mihomo to send the query through a named proxy group.
+	   We cannot map that to a sing-box detour, so reject it loudly instead of
+	   silently turning a proxied resolver into a direct one. */
+	if (match(item, /#/)) {
+		log(sprintf('Ignoring provider DNS with proxy suffix: %s.', item));
+		return;
+	}
+	if (!usable_dns_server(item)) {
+		if (!(item in ['system', 'fake-ip', 'localhost', 'local', 'any']))
+			log(sprintf('Ignoring unsupported provider DNS server: %s.', item));
+		return;
+	}
+
+	if (section === 'proxy-server-nameserver')
+		push(servers.proxy, item);
+	else if (section === 'nameserver')
+		push(servers.nameserver, item);
+	else if (section === 'default-nameserver')
+		push(servers.bootstrap, item);
+}
+
+/* Whole-section flow style: dns: {nameserver: [...], ...} */
+function collect_provider_dns_flow(servers, value) {
+	value = trim(strip_yaml_comment(value));
+	if (!match(value, /^\{.*\}$/))
+		return;
+
+	value = substr(value, 1, length(value) - 2);
+	for (let pair in split_yaml_list(value)) {
+		const m = match(trim(pair), /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
+		if (!m || !(m[1] in provider_dns_keys))
+			continue;
+		for (let item in yaml_list(m[2]))
+			collect_provider_dns(servers, m[1], item);
+	}
+}
+
+function unique_values(values) {
+	let seen = {}, result = [];
+	for (let value in values) {
+		if (value in seen)
+			continue;
+		seen[value] = true;
+		push(result, value);
+	}
+	return result;
+}
+
+function parse_provider_dns(text) {
+	if (isEmpty(text) || type(text) !== 'string')
+		return null;
+
+	let in_dns = false, child_indent = -1, list_indent = -1, section = null;
+	let servers = { proxy: [], nameserver: [], bootstrap: [] };
+
+	for (let raw in split(text, sprintf('%c', 10))) {
+		raw = rtrim(raw);
+		const line = trim(raw);
+		if (isEmpty(line) || substr(line, 0, 1) === '#')
+			continue;
+
+		let indent = 0;
+		while (indent < length(raw)) {
+			const c = substr(raw, indent, 1);
+			if (c === ' ')
+				indent++;
+			else if (c === '\t')
+				indent += 8;
+			else
+				break;
+		}
+
+		/* Only a top-level dns: key opens the section. A later duplicate
+		   replaces an earlier one, matching YAML's last-key-wins semantics. */
+		if (indent === 0) {
+			const dm = match(line, /^[^A-Za-z0-9_-]*dns\s*:\s*(.*)$/);
+			if (dm) {
+				in_dns = true;
+				child_indent = -1;
+				list_indent = -1;
+				section = null;
+				servers = { proxy: [], nameserver: [], bootstrap: [] };
+
+				const inline = trim(strip_yaml_comment(dm[1]));
+				if (!isEmpty(inline)) {
+					collect_provider_dns_flow(servers, inline);
+					in_dns = false;
+				}
+				continue;
+			}
+
+			in_dns = false;
+			section = null;
+			list_indent = -1;
+			continue;
+		}
+
+		if (!in_dns)
+			continue;
+		if (child_indent < 0)
+			child_indent = indent;
+
+		/* YAML allows list items indented under the key or aligned with it. */
+		const lm = match(line, /^-\s+(.*)$/);
+		if (lm) {
+			if (section && (indent > child_indent || indent === list_indent))
+				collect_provider_dns(servers, section, lm[1]);
+			continue;
+		}
+
+		if (indent !== child_indent)
+			continue;
+
+		const m = match(line, /^([A-Za-z0-9_-]+):\s*(.*)$/);
+		section = null;
+		list_indent = -1;
+		if (!m || !(m[1] in provider_dns_keys))
+			continue;
+
+		section = m[1];
+		/* Strip the comment before deciding whether the key has an inline
+		   value; otherwise "proxy-server-nameserver: # note" swallows the
+		   whole block sequence that follows it. */
+		const inline = trim(strip_yaml_comment(m[2]));
+		if (!isEmpty(inline)) {
+			for (let item in yaml_list(inline))
+				collect_provider_dns(servers, section, item);
+			section = null;
+		} else {
+			list_indent = child_indent;
+		}
+	}
+
+	servers.proxy = unique_values(servers.proxy);
+	servers.nameserver = unique_values(servers.nameserver);
+	servers.bootstrap = unique_values(servers.bootstrap);
+
+	if (!length(servers.proxy) && !length(servers.nameserver))
+		return null;
+	return servers;
+}
+
+/* Prefer encrypted transports for node domains: DoH > DoH3 > DoT > QUIC >
+   plain TCP/UDP > a bare IP (plain UDP:53). */
+function provider_dns_rank(server) {
+	if (match(server, /^https:\/\//))
+		return 0;
+	if (match(server, /^h3:\/\//))
+		return 1;
+	if (match(server, /^tls:\/\//))
+		return 2;
+	if (match(server, /^quic:\/\//))
+		return 3;
+	if (match(server, /^(tcp|udp):\/\//))
+		return 4;
+	return 5;
+}
+
+function select_provider_dns(list) {
+	let best = null, best_rank = 99;
+	for (let item in list) {
+		const rank = provider_dns_rank(item);
+		if (rank < best_rank) {
+			best = item;
+			best_rank = rank;
+		}
+	}
+	return best;
+}
+
+/* A bootstrap resolver should itself be a literal IP when possible. */
+function select_provider_bootstrap(list) {
+	let best = null, best_rank = 99;
+	for (let item in list) {
+		let rank = 5;
+		if (!match(item, /^[A-Za-z][A-Za-z0-9+.-]*:\/\//))
+			rank = 0;
+		else if (match(item, /^tls:\/\//))
+			rank = 1;
+		else if (match(item, /^(https|h3):\/\//))
+			rank = 2;
+
+		if (rank < best_rank) {
+			best = item;
+			best_rank = rank;
+		}
+	}
+	return best;
+}
+
+function apply_provider_dns(config, provider_dns) {
+	if (isEmpty(provider_dns) || isEmpty(config.address))
+		return;
+	if (validation('ipaddr', config.address) || validation('ip6addr', config.address))
+		return;
+
+	/* mihomo uses proxy-server-nameserver as the resolver set for node
+	   domains; nameserver is only the fallback when the former is absent. */
+	const dns_list = length(provider_dns.proxy) ? provider_dns.proxy : provider_dns.nameserver;
+	const server = select_provider_dns(dns_list);
+	if (isEmpty(server))
+		return;
+
+	/* Subscription-owned fields: the node editor owns node_dns_server. */
+	config.provider_dns_server = server;
+
+	const bootstrap = select_provider_bootstrap(provider_dns.bootstrap);
+	if (!isEmpty(bootstrap) && bootstrap !== server)
+		config.provider_dns_bootstrap = bootstrap;
+}
+/* Provider DNS parsing end */
+
 function main() {
 	const seen_urls = {};
 	for (let configured_url in subscription_urls) {
@@ -1072,6 +1360,21 @@ function main() {
 			if (isEmpty(res)) {
 				log(sprintf('Failed to fetch resources from %s.', url));
 				continue;
+			}
+
+			/* Provider DNS is read from the same response the nodes come from.
+			   Base64-wrapped Clash configs are supported by the node parser,
+			   so try the decoded body before giving up. No extra request is
+			   made; when nothing is delivered the client falls back to a
+			   domestic DoH resolver. */
+			let provider_dns = null;
+			if (fetch_provider_dns === '1') {
+				provider_dns = parse_provider_dns(res);
+				if (isEmpty(provider_dns)) {
+					const decoded = decodeBase64Str(res);
+					if (!isEmpty(decoded))
+						provider_dns = parse_provider_dns(decoded);
+				}
 			}
 
 			let nodes;
@@ -1106,6 +1409,7 @@ function main() {
 
 					const label = config.label;
 					config.label = null;
+					apply_provider_dns(config, provider_dns);
 					const confHash = md5(sprintf('%J', config));
 					config.label = label;
 
@@ -1211,8 +1515,11 @@ function main() {
 		} else {
 			const next = cached_group[cfg['.name']];
 			let changed = false;
+			/* node_dns_server is owned by the node editor, never by a subscription. */
+			const preserve_options = ['node_dns_server'];
 			for (let option in keys(cfg))
-				if (!match(option, /^\./) && !(option in next)) {
+				if (!match(option, /^\./) && !(option in next) &&
+				    !(option in preserve_options)) {
 					uci.delete(uciconfig, cfg['.name'], option);
 					changed = true;
 				}

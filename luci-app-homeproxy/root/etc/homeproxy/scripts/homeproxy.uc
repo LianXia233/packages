@@ -699,6 +699,52 @@ export function parseURL(url) {
 
 	return objurl;
 };
+
+function isLoopbackDNSHost(host) {
+	if (isEmpty(host))
+		return true;
+
+	host = lc(replace(host, /^\[|\]$/g, ''));
+
+	if (host in ['::', '::1', '0.0.0.0', 'localhost', 'localhost.'])
+		return true;
+	/* Querying the router itself (or a link-local address) loops back into
+	   dnsmasq, which is exactly what the node resolver must avoid. */
+	if (match(host, /^127\./) || match(host, /^fe[89ab][0-9a-f]:/))
+		return true;
+
+	return false;
+};
+
+export function usable_dns_server(server) {
+	if (isEmpty(server) || type(server) !== 'string')
+		return false;
+
+	server = trim(server);
+	if (isEmpty(server) || match(server, /#/))
+		return false;
+	if (server in ['system', 'fake-ip', 'localhost', 'local', 'any'])
+		return false;
+
+	if (match(server, /^(https|h3|tls|tcp|udp|quic):\/\//)) {
+		const url = parseURL(server);
+		if (!url || isEmpty(url.hostname))
+			return false;
+		const port = strToInt(url.port);
+		if (port !== null && (port < 1 || port > 65535))
+			return false;
+		return !isLoopbackDNSHost(url.hostname);
+	}
+
+	/* Reject unknown schemes (system://, dhcp://, rcode://, ...). */
+	if (match(server, /^[A-Za-z][A-Za-z0-9+.-]*:\/\//))
+		return false;
+
+	if (!validation('ipaddr', server) && !validation('ip6addr', server))
+		return false;
+
+	return !isLoopbackDNSHost(server);
+};
 /* String parser end */
 
 export function getSubscriptionGroups(uci, config) {
