@@ -145,16 +145,27 @@ function bool_to_uci(value) {
 	return null;
 }
 
-function parse_vmess_insecure(...values) {
+/* Subscriptions disagree on the type of skip-cert-verify / allowInsecure:
+   numbers, booleans and strings are all seen in the wild. Return null when
+   the source does not express a preference so the caller can fall back to
+   the global switch instead of silently forcing a direction. */
+function parse_insecure(value) {
+	if (type(value) === 'string')
+		value = lc(trim(value));
+	if (value in [true, 1, 1.0, '1', 'true', 'yes'])
+		return '1';
+	if (value in [false, 0, 0.0, '0', 'false', 'no'])
+		return '0';
+	return null;
+}
+
+function first_insecure(...values) {
 	for (let value in values) {
-		if (type(value) === 'string')
-			value = lc(trim(value));
-		if (value in [true, 1, 1.0, '1', 'true', 'yes'])
-			return '1';
-		if (value in [false, 0, 0.0, '0', 'false', 'no'])
-			return '0';
+		const parsed = parse_insecure(value);
+		if (parsed !== null)
+			return parsed;
 	}
-	return '0';
+	return null;
 }
 
 function values_equal(left, right) {
@@ -317,9 +328,8 @@ function parse_mihomo_proxy(proxy) {
 	let config;
 	const tls_sni = proxy.servername || proxy.sni;
 	const tls_fingerprint = proxy['client-fingerprint'] || proxy.fingerprint;
-	const tls_insecure = (proxy['skip-cert-verify'] === true || proxy.insecure === '1' || proxy.allowInsecure === true || proxy.allowInsecure === '1') ? '1'
-		: (proxy['skip-cert-verify'] === false || proxy.insecure === '0' || proxy.allowInsecure === false || proxy.allowInsecure === '0') ? '0'
-		: null;
+	const tls_insecure = first_insecure(proxy['skip-cert-verify'], proxy.insecure,
+		proxy.allowInsecure);
 
 	switch (proxy.type) {
 	case 'anytls': {
@@ -363,7 +373,7 @@ function parse_mihomo_proxy(proxy) {
 			tls: tls ? '1' : '0',
 			tls_sni,
 			tls_alpn: normalize_alpn(proxy.alpn),
-			tls_insecure: tls ? parse_vmess_insecure(proxy['skip-cert-verify'],
+			tls_insecure: tls ? first_insecure(proxy['skip-cert-verify'],
 				proxy.insecure, proxy.allowInsecure) : '0',
 			tls_utls: sing_features.with_utls ? tls_fingerprint : null,
 			tcp_fast_open: (proxy.tfo === true) ? '1' : null
@@ -625,7 +635,7 @@ function parse_uri(uri) {
 			port: url.port,
 			password: urldecode(url.username),
 			tls: '1',
-			tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+			tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 			tls_sni: params.sni,
 			tls_utls: sing_features.with_utls ? anytls_fp : null
 		};
@@ -672,7 +682,7 @@ function parse_uri(uri) {
 				hysteria_down_mbps: params.downmbps,
 				hysteria_up_mbps: params.upmbps,
 				tls: '1',
-				tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+				tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 				tls_sni: params.peer,
 				tls_alpn: params.alpn
 			};
@@ -701,7 +711,7 @@ function parse_uri(uri) {
 				hysteria_obfs_type: params.obfs,
 				hysteria_obfs_password: params['obfs-password'],
 				tls: '1',
-				tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+				tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 				tls_sni: params.sni
 			};
 
@@ -771,7 +781,7 @@ function parse_uri(uri) {
 				password: urldecode(url.username),
 				transport: (params.type !== 'tcp') ? params.type : null,
 				tls: '1',
-				tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+				tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 				tls_sni: params.sni,
 				tls_alpn: params.alpn ? split(params.alpn, ',') : null,
 				tls_utls: sing_features.with_utls ? params.fp : null,
@@ -822,7 +832,7 @@ function parse_uri(uri) {
 				tuic_congestion_control: params.congestion_control,
 				tuic_udp_relay_mode: params.udp_relay_mode,
 				tls: '1',
-				tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+				tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 				tls_sni: params.sni,
 				tls_alpn: params.alpn ? split(urldecode(params.alpn), ',') : null,
 			};
@@ -854,7 +864,7 @@ function parse_uri(uri) {
 				uuid: url.username,
 				transport: (params.type !== 'tcp') ? params.type : null,
 				tls: (params.security in ['tls', 'xtls', 'reality']) ? '1' : '0',
-				tls_insecure: (params.insecure === '1' || params.allowInsecure === '1') ? '1' : '0',
+				tls_insecure: first_insecure(params.insecure, params.allowInsecure),
 				tls_sni: params.sni,
 				tls_alpn: params.alpn ? split(urldecode(params.alpn), ',') : null,
 				tls_reality: (params.security === 'reality') ? '1' : '0',
@@ -942,7 +952,7 @@ function parse_uri(uri) {
 				vmess_global_padding: '1',
 				transport: (uri.net !== 'tcp') ? uri.net : null,
 				tls: tls ? '1' : '0',
-				tls_insecure: tls ? parse_vmess_insecure(uri.allowInsecure, uri.insecure) : '0',
+				tls_insecure: tls ? first_insecure(uri.allowInsecure, uri.insecure) : '0',
 				tls_sni: uri.sni || uri.host,
 				tls_alpn: uri.alpn ? split(uri.alpn, ',') : null,
 				tls_utls: sing_features.with_utls ? uri.fp : null,
@@ -1114,8 +1124,15 @@ function main() {
 							continue;
 						}
 
-						if (config.tls === '1' && allow_insecure === '1')
-							config.tls_insecure = '1';
+						/* An explicit value from the subscription wins; the
+						   global switch is only a fallback for sources that do
+						   not express a preference. Non-TLS nodes are always
+						   stored as '0' so a stale '1' cannot survive. */
+						if (config.tls !== '1') {
+							config.tls_insecure = '0';
+						} else if (config.tls_insecure !== '1' && config.tls_insecure !== '0') {
+							config.tls_insecure = (allow_insecure === '1') ? '1' : '0';
+						}
 						if (config.type in ['vless', 'vmess'] && isEmpty(config.packet_encoding))
 							config.packet_encoding = packet_encoding;
 

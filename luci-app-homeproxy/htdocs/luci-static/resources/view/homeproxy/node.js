@@ -29,6 +29,28 @@ function allowInsecureConfirm(ev, _section_id, value) {
 		ev.target.firstElementChild.checked = null;
 }
 
+/* Share links express skip-cert-verify as a number, a boolean or a string
+   depending on the generator. Return null when the link does not express a
+   preference so the global switch can be used as fallback. */
+function parseInsecure(value) {
+	if (typeof value === 'string')
+		value = value.trim().toLowerCase();
+	if (value === true || value === 1 || value === '1' || value === 'true' || value === 'yes')
+		return '1';
+	if (value === false || value === 0 || value === '0' || value === 'false' || value === 'no')
+		return '0';
+	return null;
+}
+
+function firstInsecure(...values) {
+	for (let value of values) {
+		const parsed = parseInsecure(value);
+		if (parsed !== null)
+			return parsed;
+	}
+	return null;
+}
+
 function normalizeHysteriaHoppingPort(mport) {
 	if (!mport)
 		return null;
@@ -120,7 +142,7 @@ function parseShareLink(uri, features) {
 				password: url.username ? decodeURIComponent(url.username) : null,
 				tls: '1',
 				tls_sni: params.get('sni'),
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_utls: features.with_utls ? anytls_fp : null
 			};
 
@@ -161,7 +183,7 @@ function parseShareLink(uri, features) {
 				hysteria_down_mbps: params.get('downmbps'),
 				hysteria_up_mbps: params.get('upmbps'),
 				tls: '1',
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_sni: params.get('peer'),
 				tls_alpn: params.get('alpn')
 			};
@@ -188,7 +210,7 @@ function parseShareLink(uri, features) {
 				hysteria_obfs_type: params.get('obfs'),
 				hysteria_obfs_password: params.get('obfs-password'),
 				tls: '1',
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_sni: params.get('sni')
 			};
 
@@ -269,7 +291,7 @@ function parseShareLink(uri, features) {
 				password: decodeURIComponent(url.username),
 				transport: params.get('type') !== 'tcp' ? params.get('type') : null,
 				tls: '1',
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_sni: params.get('sni'),
 				tls_alpn: params.get('alpn') ? params.get('alpn').split(',') : null,
 				tls_utls: features.with_utls ? params.get('fp') : null,
@@ -318,7 +340,7 @@ function parseShareLink(uri, features) {
 				tuic_congestion_control: params.get('congestion_control'),
 				tuic_udp_relay_mode: params.get('udp_relay_mode'),
 				tls: '1',
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_sni: params.get('sni'),
 				tls_alpn: params.get('alpn') ? decodeURIComponent(params.get('alpn')).split(',') : null
 			};
@@ -346,7 +368,7 @@ function parseShareLink(uri, features) {
 				uuid: url.username,
 				transport: params.get('type') !== 'tcp' ? params.get('type') : null,
 				tls: ['tls', 'xtls', 'reality'].includes(params.get('security')) ? '1' : '0',
-				tls_insecure: (params.get('insecure') === '1' || params.get('allowInsecure') === '1') ? '1' : '0',
+				tls_insecure: firstInsecure(params.get('insecure'), params.get('allowInsecure')),
 				tls_sni: params.get('sni'),
 				tls_alpn: params.get('alpn') ? decodeURIComponent(params.get('alpn')).split(',') : null,
 				tls_reality: (params.get('security') === 'reality') ? '1' : '0',
@@ -414,6 +436,7 @@ function parseShareLink(uri, features) {
 				vmess_encrypt: uri.scy || 'auto',
 				transport: (uri.net !== 'tcp') ? uri.net : null,
 				tls: uri.tls === 'tls' ? '1' : '0',
+				tls_insecure: uri.tls === 'tls' ? firstInsecure(uri.allowInsecure, uri.insecure) : '0',
 				tls_sni: uri.sni || uri.host,
 				tls_alpn: uri.alpn ? uri.alpn.split(',') : null,
 				tls_utls: features.with_utls ? uri.fp : null,
@@ -1749,8 +1772,13 @@ return view.extend({
 										let config = parseShareLink(l, features);
 										if (!config)
 											return;
-										if (config.tls === '1' && allow_insecure === '1')
-											config.tls_insecure = '1'
+										if (config.tls !== '1') {
+											config.tls_insecure = '0';
+										} else if (config.tls_insecure !== '1' && config.tls_insecure !== '0') {
+											/* The link did not say; honour the
+											   global switch as fallback. */
+											config.tls_insecure = (allow_insecure === '1') ? '1' : '0';
+										}
 										if (['vless', 'vmess'].includes(config.type))
 											config.packet_encoding = packet_encoding
 
