@@ -1274,6 +1274,7 @@ function parse_provider_dns(text) {
 /* Prefer encrypted transports for node domains: DoH > DoH3 > DoT > QUIC >
    plain TCP/UDP > a bare IP (plain UDP:53). */
 function provider_dns_rank(server) {
+	server = lc(server);
 	if (match(server, /^https:\/\//))
 		return 0;
 	if (match(server, /^h3:\/\//))
@@ -1303,12 +1304,13 @@ function select_provider_dns(list) {
 function select_provider_bootstrap(list) {
 	let best = null, best_rank = 99;
 	for (let item in list) {
+		const lower = lc(item);
 		let rank = 5;
-		if (!match(item, /^[A-Za-z][A-Za-z0-9+.-]*:\/\//))
+		if (!match(lower, /^[a-z][a-z0-9+.-]*:\/\//))
 			rank = 0;
-		else if (match(item, /^tls:\/\//))
+		else if (match(lower, /^tls:\/\//))
 			rank = 1;
-		else if (match(item, /^(https|h3):\/\//))
+		else if (match(lower, /^(https|h3):\/\//))
 			rank = 2;
 
 		if (rank < best_rank) {

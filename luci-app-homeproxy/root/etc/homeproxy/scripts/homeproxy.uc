@@ -723,10 +723,12 @@ export function usable_dns_server(server) {
 	server = trim(server);
 	if (isEmpty(server) || match(server, /#/))
 		return false;
-	if (server in ['system', 'fake-ip', 'localhost', 'local', 'any'])
+
+	const lower = lc(server);
+	if (lower in ['system', 'fake-ip', 'localhost', 'local', 'any'])
 		return false;
 
-	if (match(server, /^(https|h3|tls|tcp|udp|quic):\/\//)) {
+	if (match(lower, /^(https|h3|tls|tcp|udp|quic):\/\//)) {
 		const url = parseURL(server);
 		if (!url || isEmpty(url.hostname))
 			return false;
@@ -737,7 +739,7 @@ export function usable_dns_server(server) {
 	}
 
 	/* Reject unknown schemes (system://, dhcp://, rcode://, ...). */
-	if (match(server, /^[A-Za-z][A-Za-z0-9+.-]*:\/\//))
+	if (match(lower, /^[a-z][a-z0-9+.-]*:\/\//))
 		return false;
 
 	if (!validation('ipaddr', server) && !validation('ip6addr', server))
