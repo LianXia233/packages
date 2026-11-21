@@ -470,8 +470,12 @@ function usable_node_dns(server) {
 }
 
 /* Domestic resolver used when neither the node nor the subscription provides
-   one. Node domains must be resolved directly, never through the proxy. */
-const fallback_dns_server = 'https://dns.alidns.com/dns-query';
+   one. Node domains must be resolved directly, never through the proxy.
+   Prefer the mainland DNS server configured in LuCI (option china_dns_server)
+   so users control it from one place; fall back to a built-in DoH endpoint. */
+const configured_mainland_dns = uci.get(uciconfig, ucimain, 'china_dns_server');
+const fallback_dns_server = usable_node_dns(configured_mainland_dns) ?
+	configured_mainland_dns : 'https://dns.alidns.com/dns-query';
 const fallback_dns_bootstrap = '223.5.5.5';
 let node_fallback_dns_tag = null;
 let node_fallback_bootstrap_tag = null;
