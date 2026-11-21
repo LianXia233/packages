@@ -1443,7 +1443,7 @@ msgstr "开启后仅名单内的设备生效，非名单内设备全部直连。
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:2001
 msgid ""
-"Only enable this for subscriptions you trust: the provider then"
+"Only enable this for subscriptions you trust: the provider then "
 "controls how node server domains are resolved."
 msgstr "请仅对信任的订阅启用：开启后，订阅提供方即可决定节点服务器域名如何解析。"
 
@@ -1457,8 +1457,8 @@ msgstr "打开仪表盘"
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:982
 msgid ""
-"Override the DNS server used to resolve the server address of this"
-"node. Leave empty to use the DoH/DoT delivered by the subscription or"
+"Override the DNS server used to resolve the server address of this "
+"node. Leave empty to use the DoH/DoT delivered by the subscription or "
 "the domestic fallback DNS."
 msgstr "覆盖用于解析该节点服务器地址的 DNS。留空则使用订阅下发的 DoH/DoT 或国内回退 DNS；此项由节点编辑单独保存，订阅更新不会覆盖。"
 
@@ -1537,8 +1537,8 @@ msgstr "优先 IPv6"
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1997
 msgid ""
-"Prefer the DoH/DoT resolver delivered by the subscription"
-"(Clash/Mihomo <code>proxy-server-nameserver</code>) when resolving"
+"Prefer the DoH/DoT resolver delivered by the subscription "
+"(Clash/Mihomo <code>proxy-server-nameserver</code>) when resolving "
 "node server domains."
 msgstr ""
 "解析节点服务器域名时，优先使用订阅（Clash/Mihomo 格式）下发的 DoH/DoT"
@@ -2372,7 +2372,7 @@ msgstr "网站"
 
 #: luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/node.js:1999
 msgid ""
-"When the subscription does not deliver one, a domestic DoH resolver is"
+"When the subscription does not deliver one, a domestic DoH resolver is "
 "used as fallback."
 msgstr "订阅未下发时，使用国内 DoH 解析器作为回退。"
 
